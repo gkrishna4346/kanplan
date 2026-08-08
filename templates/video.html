@@ -108,22 +108,46 @@
     }
   }
 
+  const renderedTiles = new Map(); // sessionId -> { tile, video, audio }
+
   function renderParticipants(participants) {
-    console.log('[Video] renderParticipants called with', participants.length, 'participant(s)', participants);
     const stage = document.getElementById('videoStage');
-    stage.innerHTML = '';
-    stage.className = 'video-stage video-stage-grid';
+    const seenIds = new Set(participants.map(p => p.sessionId));
+
+    // Remove tiles for participants who left — don't touch tiles that are
+    // still present, since recreating/rebinding an already-bound tile is
+    // exactly what caused the infinite loop before.
+    for (const [sessionId, entry] of renderedTiles) {
+      if (!seenIds.has(sessionId)) {
+        entry.tile.remove();
+        renderedTiles.delete(sessionId);
+      }
+    }
+
+    if (stage.className !== 'video-stage video-stage-grid' || !stage.children.length) {
+      stage.innerHTML = '';
+      stage.className = 'video-stage video-stage-grid';
+    }
 
     participants.forEach(p => {
-      console.log('[Video] participant:', p.userId, 'sessionId:', p.sessionId, 'publishedTracks:', p.publishedTracks);
+      if (renderedTiles.has(p.sessionId)) return; // already built — do nothing
+
+      console.log('[Video] new participant:', p.userId, 'sessionId:', p.sessionId);
       const tile = document.createElement('div');
       tile.className = 'video-tile';
 
       const video = document.createElement('video');
       video.autoplay = true;
       video.playsInline = true;
-      video.muted = p.isLocalParticipant;
+      video.muted = p.isLocalParticipant; // avoid hearing yourself; remote audio plays via bindAudioElement below
       tile.appendChild(video);
+
+      let audio = null;
+      if (!p.isLocalParticipant) {
+        audio = document.createElement('audio');
+        audio.autoplay = true;
+        tile.appendChild(audio);
+      }
 
       const label = document.createElement('div');
       label.className = 'video-tile-label';
@@ -131,12 +155,13 @@
       tile.appendChild(label);
 
       stage.appendChild(tile);
+      renderedTiles.set(p.sessionId, { tile, video, audio });
 
       try {
         activeCall.bindVideoElement(video, p.sessionId, 'videoTrack');
-        console.log('[Video] bindVideoElement OK for', p.sessionId);
+        if (audio) activeCall.bindAudioElement(audio, p.sessionId, 'audioTrack');
       } catch (err) {
-        console.warn('[Video] Could not bind video for', p.sessionId, err);
+        console.warn('[Video] Could not bind media for', p.sessionId, err);
       }
     });
 
@@ -157,6 +182,7 @@
         await activeCall.leave();
       }
       activeCall = client.call('default', callId);
+      renderedTiles.clear();
       console.log('[Video] Joining call:', callId);
       await activeCall.join({ create: true });
       console.log('[Video] Joined. Enabling camera/mic…');
@@ -199,6 +225,7 @@
     if (!activeCall) return;
     try { await activeCall.leave(); } catch (err) { console.warn(err); }
     activeCall = null;
+    renderedTiles.clear();
     setActiveNav(null);
     document.getElementById('videoHeader').textContent = 'Pick who to call';
     document.getElementById('videoStage').className = 'video-stage';
