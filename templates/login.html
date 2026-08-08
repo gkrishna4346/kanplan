@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Log in — KanPlan</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div><span class="dot"></span><strong style="font-size:20px;">KanPlan</strong></div>
+      <p style="color:var(--text-muted); font-size:13px; margin-top:10px;">
+        Organize your team's work, backed by your own Google account.
+      </p>
+      <a class="google-btn" href="{{ url_for('auth.login_google') }}">Continue with Google</a>
+    </div>
+  </div>
+</body>
+</html>

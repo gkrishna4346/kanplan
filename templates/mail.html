@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Mail — KanPlan{% endblock %}
+{% set active = 'mail' %}
+
+{% block content %}
+<div class="board-header" style="display:flex; align-items:center; justify-content:space-between;">
+  <h2>Mail</h2>
+  {% if not error %}
+  <button class="btn-primary" onclick="openCompose()">✏️ Compose</button>
+  {% endif %}
+</div>
+
+{% if error %}
+<div class="team-section">
+  <div class="team-list">
+    <div class="team-row">
+      <div class="team-email">
+        {{ error }}
+        {% if needs_relogin %}
+        <br><a href="{{ url_for('auth.logout') }}" class="btn-secondary" style="display:inline-block; margin-top:10px;">Log out to re-grant access</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
+
+<div class="convo-layout">
+  <div class="convo-sidebar" style="width:320px;">
+    <div class="convo-sidebar-title">Inbox ({{ messages|length }})</div>
+    {% for m in messages %}
+    <div class="mail-row {% if m.unread %}mail-unread{% endif %}" id="mail-{{ m.id }}" onclick="openMessage('{{ m.id }}')">
+      <div class="mail-row-top">
+        <span class="mail-from">{{ m.from.split('<')[0].strip() if m.from else 'Unknown' }}</span>
+        <span class="mail-date">{{ m.date[:16] if m.date else '' }}</span>
+      </div>
+      <div class="mail-subject">{{ m.subject }}</div>
+      <div class="mail-snippet">{{ m.snippet }}</div>
+    </div>
+    {% else %}
+    <div class="team-email" style="padding:8px 12px;">Your inbox is empty.</div>
+    {% endfor %}
+  </div>
+
+  <div class="convo-main">
+    <div class="convo-header" id="mailHeader">Select a message</div>
+    <div class="mail-reading-pane" id="mailReadingPane">
+      <div class="convo-loading">Click a message on the left to read it.</div>
+    </div>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if not error %}
+<script>
+  async function openMessage(id) {
+    document.querySelectorAll('.mail-row').forEach(r => r.classList.remove('active'));
+    const row = document.getElementById('mail-' + id);
+    if (row) { row.classList.add('active'); row.classList.remove('mail-unread'); }
+
+    document.getElementById('mailHeader').textContent = 'Loading…';
+    document.getElementById('mailReadingPane').innerHTML = '<div class="convo-loading">Loading…</div>';
+
+    try {
+      const res = await fetch(`/api/mail/${id}`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `Server returned ${res.status}`);
+      }
+      document.getElementById('mailHeader').textContent = data.subject;
+      document.getElementById('mailReadingPane').innerHTML = `
+        <div class="mail-detail-meta">
+          <div><strong>From:</strong> ${escapeHtml(data.from)}</div>
+          <div><strong>To:</strong> ${escapeHtml(data.to)}</div>
+          <div><strong>Date:</strong> ${escapeHtml(data.date)}</div>
+        </div>
+        <div class="mail-detail-body">${escapeHtml(data.body)}</div>
+      `;
+    } catch (err) {
+      console.error('[Mail] openMessage failed:', err);
+      document.getElementById('mailHeader').textContent = 'Failed to load';
+      document.getElementById('mailReadingPane').innerHTML =
+        `<div class="convo-loading" style="color:var(--danger);">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML.replace(/\n/g, '<br>');
+  }
+
+  function openCompose() {
+    document.getElementById('composeModal').classList.add('open');
+  }
+  function closeCompose() {
+    document.getElementById('composeModal').classList.remove('open');
+  }
+
+  async function sendCompose() {
+    const to = document.getElementById('composeTo').value.trim();
+    const subject = document.getElementById('composeSubject').value.trim();
+    const body = document.getElementById('composeBody').value;
+    const statusEl = document.getElementById('composeStatus');
+
+    if (!to || !subject) {
+      statusEl.textContent = 'To and Subject are required.';
+      statusEl.style.color = 'var(--danger)';
+      return;
+    }
+
+    statusEl.textContent = 'Sending…';
+    statusEl.style.color = 'var(--text-muted)';
+
+    try {
+      const res = await fetch('/api/mail/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, subject, body }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
+
+      statusEl.textContent = 'Sent!';
+      statusEl.style.color = 'var(--success, #2a9d5c)';
+      setTimeout(() => {
+        closeCompose();
+        document.getElementById('composeTo').value = '';
+        document.getElementById('composeSubject').value = '';
+        document.getElementById('composeBody').value = '';
+        statusEl.textContent = '';
+      }, 800);
+    } catch (err) {
+      console.error('[Mail] send failed:', err);
+      statusEl.textContent = err.message;
+      statusEl.style.color = 'var(--danger)';
+    }
+  }
+</script>
+
+<div id="composeModal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header"><h3>New message</h3><button class="modal-close" onclick="closeCompose()">&times;</button></div>
+    <input type="email" id="composeTo" class="form-input" placeholder="To">
+    <input type="text" id="composeSubject" class="form-input" placeholder="Subject" style="margin-top:8px;">
+    <textarea id="composeBody" class="form-input" placeholder="Write your message…" rows="8" style="margin-top:8px;"></textarea>
+    <div id="composeStatus" style="font-size:12.5px; min-height:16px; margin-top:8px;"></div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="sendCompose()">Send</button>
+      <button class="btn-secondary" onclick="closeCompose()">Cancel</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

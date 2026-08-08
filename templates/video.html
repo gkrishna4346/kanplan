@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block title %}Vidéo — KanPlan{% endblock %}
+{% set active = 'video' %}
+
+{% block content %}
+<div class="board-header">
+  <h2>Vidéo</h2>
+</div>
+
+{% if not configured %}
+<div class="team-section">
+  <div class="team-list">
+    <div class="team-row">
+      <div class="team-email">
+        Video calling uses the same Stream account as Convo — set up
+        <code>STREAM_API_KEY</code> / <code>STREAM_API_SECRET</code> first (see the Convo page)
+        and this will light up automatically.
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
+
+<div class="convo-layout">
+  <div class="convo-sidebar">
+    <div class="convo-sidebar-title">Team</div>
+    <div class="convo-channel-item" id="call-team" onclick="startCall('{{ team_call_id }}', 'Team call', this)">
+      <span class="avatar">#</span>
+      <div class="convo-channel-name">Team call</div>
+    </div>
+
+    <div class="convo-sidebar-title" style="margin-top:16px;">Direct call</div>
+    {% for t in teammates %}
+    <div class="convo-channel-item" id="call-dm-{{ t.id }}" onclick="startCall('{{ t.call_id }}', '{{ t.name }}', this)">
+      <span class="avatar">{{ t.initials }}</span>
+      <div class="convo-channel-name">{{ t.name }}</div>
+    </div>
+    {% else %}
+    <div class="team-email" style="padding:8px 12px;">No teammates yet — invite someone from the Team page.</div>
+    {% endfor %}
+  </div>
+
+  <div class="convo-main">
+    <div class="convo-header" id="videoHeader">Pick who to call</div>
+    <div class="video-stage" id="videoStage">
+      <div class="convo-loading">Choose Team call or a teammate on the left to start a video call.</div>
+    </div>
+    <div class="video-controls" id="videoControls" style="display:none;">
+      <button class="video-ctrl-btn" id="micBtn" onclick="toggleMic()">🎙️ Mute</button>
+      <button class="video-ctrl-btn" id="camBtn" onclick="toggleCam()">📷 Camera off</button>
+      <button class="video-ctrl-btn video-ctrl-leave" onclick="leaveCall()">📞 Leave</button>
+    </div>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if configured %}
+<script type="module">
+  // Self-hosted bundle instead of a CDN — jsdelivr's automatic +esm bundling
+  // broke on one of this package's WebRTC sub-dependencies (sdp-transform),
+  // which silently killed the whole module import. Bundling it locally with
+  // esbuild sidesteps that fragility entirely.
+  import { StreamVideoClient } from "{{ url_for('static', filename='js/stream-video-bundle.js') }}";
+
+  const STREAM_API_KEY = {{ stream_api_key|tojson }};
+  const STREAM_TOKEN = {{ stream_token|tojson }};
+  const CURRENT_USER = {
+    id: {{ user_id|tojson }},
+    name: {{ user_name|tojson }},
+    image: {{ user_avatar|tojson }},
+  };
+  const PRESET_CALL_ID = {{ preset_call_id|tojson }};
+  const PRESET_LABEL = {{ preset_label|tojson }};
+
+  let client, activeCall, micOn = true, camOn = true;
+
+  function setActiveNav(el) {
+    document.querySelectorAll('.convo-channel-item').forEach(n => n.classList.remove('active'));
+    if (el) el.classList.add('active');
+  }
+
+  function showError(msg) {
+    console.error('[Video]', msg);
+    document.getElementById('videoStage').innerHTML =
+      `<div class="convo-loading" style="color:var(--danger);">${escapeHtml(msg)}<br>Open the browser console for full details.</div>`;
+    document.getElementById('videoControls').style.display = 'none';
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  async function initClient() {
+    try {
+      client = new StreamVideoClient({
+        apiKey: STREAM_API_KEY,
+        user: CURRENT_USER,
+        token: STREAM_TOKEN,
+      });
+      console.log('[Video] Client ready');
+    } catch (err) {
+      showError("Couldn't set up video: " + (err.message || err));
+    }
+  }
+
+  function renderParticipants(participants) {
+    console.log('[Video] renderParticipants called with', participants.length, 'participant(s)', participants);
+    const stage = document.getElementById('videoStage');
+    stage.innerHTML = '';
+    stage.className = 'video-stage video-stage-grid';
+
+    participants.forEach(p => {
+      console.log('[Video] participant:', p.userId, 'sessionId:', p.sessionId, 'publishedTracks:', p.publishedTracks);
+      const tile = document.createElement('div');
+      tile.className = 'video-tile';
+
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = p.isLocalParticipant;
+      tile.appendChild(video);
+
+      const label = document.createElement('div');
+      label.className = 'video-tile-label';
+      label.textContent = p.isLocalParticipant ? `${p.name || 'You'} (you)` : (p.name || 'Guest');
+      tile.appendChild(label);
+
+      stage.appendChild(tile);
+
+      try {
+        activeCall.bindVideoElement(video, p.sessionId, 'videoTrack');
+        console.log('[Video] bindVideoElement OK for', p.sessionId);
+      } catch (err) {
+        console.warn('[Video] Could not bind video for', p.sessionId, err);
+      }
+    });
+
+    if (!participants.length) {
+      stage.innerHTML = '<div class="convo-loading">Waiting for others to join…</div>';
+    }
+  }
+
+  window.startCall = async function (callId, label, el) {
+    if (!client) await initClient();
+    setActiveNav(el || null);
+
+    document.getElementById('videoHeader').textContent = label;
+    document.getElementById('videoStage').innerHTML = '<div class="convo-loading">Connecting…</div>';
+
+    try {
+      if (activeCall) {
+        await activeCall.leave();
+      }
+      activeCall = client.call('default', callId);
+      console.log('[Video] Joining call:', callId);
+      await activeCall.join({ create: true });
+      console.log('[Video] Joined. Enabling camera/mic…');
+      await activeCall.camera.enable();
+      await activeCall.microphone.enable();
+      console.log('[Video] Camera/mic enabled. Participants now:', activeCall.state.participants.length);
+      micOn = true; camOn = true;
+      document.getElementById('micBtn').textContent = '🎙️ Mute';
+      document.getElementById('camBtn').textContent = '📷 Camera off';
+      document.getElementById('videoControls').style.display = 'flex';
+
+      // Render immediately from the current snapshot — don't rely solely on
+      // the participants$ subscription firing, in case it only emits on the
+      // *next* change rather than the current state.
+      renderParticipants(activeCall.state.participants);
+      activeCall.state.participants$.subscribe(participants => {
+        console.log('[Video] participants$ update:', participants.length);
+        renderParticipants(participants);
+      });
+    } catch (err) {
+      showError("Couldn't join this call: " + (err.message || err));
+    }
+  };
+
+  window.toggleMic = async function () {
+    if (!activeCall) return;
+    micOn = !micOn;
+    await (micOn ? activeCall.microphone.enable() : activeCall.microphone.disable());
+    document.getElementById('micBtn').textContent = micOn ? '🎙️ Mute' : '🎙️ Unmute';
+  };
+
+  window.toggleCam = async function () {
+    if (!activeCall) return;
+    camOn = !camOn;
+    await (camOn ? activeCall.camera.enable() : activeCall.camera.disable());
+    document.getElementById('camBtn').textContent = camOn ? '📷 Camera off' : '📷 Camera on';
+  };
+
+  window.leaveCall = async function () {
+    if (!activeCall) return;
+    try { await activeCall.leave(); } catch (err) { console.warn(err); }
+    activeCall = null;
+    setActiveNav(null);
+    document.getElementById('videoHeader').textContent = 'Pick who to call';
+    document.getElementById('videoStage').className = 'video-stage';
+    document.getElementById('videoStage').innerHTML =
+      '<div class="convo-loading">Choose Team call or a teammate on the left to start a video call.</div>';
+    document.getElementById('videoControls').style.display = 'none';
+  };
+
+  (async function init() {
+    await initClient();
+    if (PRESET_CALL_ID) {
+      startCall(PRESET_CALL_ID, PRESET_LABEL || 'Call');
+    }
+  })();
+</script>
+{% endif %}
+{% endblock %}

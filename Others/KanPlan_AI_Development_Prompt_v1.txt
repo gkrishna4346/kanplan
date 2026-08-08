@@ -1,0 +1,151 @@
+KanPlan – AI Development Prompt (Version 1)
+
+Project Overview Develop KanPlan, a clean and modern Kanban-based task
+management application for personal productivity. The application should
+be lightweight, responsive, and easy to maintain while offering the
+essential features users need to organize daily work.
+
+The focus is simplicity, performance, and usability. Avoid unnecessary
+complexity.
+
+  ------------------
+  Technology Stack
+  ------------------
+
+Backend - Python - Flask
+
+Frontend - HTML - CSS - JavaScript - Bootstrap 5
+
+Database - SQLite (local cache) - Google Sheets (cloud backup)
+
+Libraries - SortableJS (Drag & Drop) - Chart.js - Google OAuth - Google
+Sheets API
+
+  ----------------
+  Authentication
+  ----------------
+
+-   Login with Google Gmail
+-   Logout
+-   Remember user session
+
+On first login: - Create a dedicated Google Sheet for the user if it
+doesn’t already exist. - Store all tasks in that sheet. - Automatically
+sync task changes. - No manual backup required.
+
+Example Flow
+
+Google Login ↓ KanPlan ↓ Google Sheet _KanPlan
+
+Each Gmail account has its own Google Sheet, making the data private and
+accessible from any device.
+
+  -----------
+  Dashboard
+  -----------
+
+Display: - Total Tasks - Pending - In Progress - Completed - Overdue -
+Today’s Tasks - Productivity % - Small productivity chart using Chart.js
+
+  --------------
+  Kanban Board
+  --------------
+
+Default Columns - Backlog - To Do - In Progress - Review - Completed
+
+Functions - Drag & Drop - Add Task - Edit Task - Delete Task - Search
+Tasks - Move Tasks Between Columns
+
+  --------------
+  Task Details
+  --------------
+
+Each task contains: - Title - Description - Priority - Status - Due
+Date - Tags - Created Date - Last Updated
+
+Keep the form simple and uncluttered.
+
+  ------------------
+  Search & Filters
+  ------------------
+
+Search: - Title - Description - Tags
+
+Filters: - Status - Priority - Due Today - Overdue
+
+  -----------
+  Analytics
+  -----------
+
+Display: - Task Status Distribution - Weekly Completed Tasks - Monthly
+Completed Tasks - Productivity Percentage
+
+Use simple Chart.js visualizations.
+
+  ----------
+  Settings
+  ----------
+
+-   User Profile
+-   Theme (Light / Dark)
+-   Sync Now
+-   Export CSV
+-   Logout
+
+  ----------------------
+  Google Sheets Backup
+  ----------------------
+
+Google Sheets acts as the primary cloud backup.
+
+Requirements: - Automatically create a sheet during first login. - Sync
+every Add, Edit, Delete and Move action. - Load tasks from Google Sheets
+when logging in from another device. - SQLite is only used as a local
+cache for faster performance.
+
+  ---------------
+  UI Guidelines
+  ---------------
+
+-   Modern and clean
+-   Responsive
+-   Rounded cards
+-   Soft shadows
+-   Minimal animations
+-   Sidebar navigation
+-   Mobile friendly
+-   Fast loading
+
+  ------------------
+  Folder Structure
+  ------------------
+
+kanplan/ │── app.py │── config.py │── requirements.txt ├── database/ ├──
+routes/ ├── services/ │ google_auth.py │ google_sheet.py │
+task_service.py ├── templates/ ├── static/ └── uploads/
+
+  ---------------------
+  Future Enhancements
+  ---------------------
+
+-   Team Collaboration
+-   Multiple Boards
+-   Calendar View
+-   Notifications
+-   AI Task Prioritization
+-   AI Productivity Insights
+-   Mobile App
+-   Offline Mode
+
+  ------------------------
+  Development Guidelines
+  ------------------------
+
+-   Build one module at a time.
+-   Keep the code modular and reusable.
+-   Write clean, well-documented code.
+-   Avoid unnecessary frameworks and overengineering.
+-   Use Flask with embedded HTML/CSS/JavaScript.
+-   Design for future scalability.
+-   Keep Version 1 focused on core productivity with Google Login and
+    automatic Google Sheets backup.

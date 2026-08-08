@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Team — KanPlan{% endblock %}
+{% set active = 'team' %}
+
+{% block content %}
+<div class="board-header">
+  <h2>Team</h2>
+  <button class="btn-primary" onclick="openInviteModal()">+ Invite</button>
+</div>
+
+<div class="team-section">
+  <h3 class="team-section-title">Members ({{ members|length }})</h3>
+  <div class="team-list">
+    {% for m in members %}
+    <div class="team-row" id="member-row-{{ m.id }}">
+      <div class="team-person">
+        <span class="avatar">{{ m.user.initials() }}</span>
+        <div>
+          <div class="team-name">{{ m.user.name }}</div>
+          <div class="team-email">{{ m.user.email }}</div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="role-badge role-{{ m.role }}">{{ m.role|capitalize }}</span>
+        {% if current_role == 'admin' and m.user_id != current_user.id %}
+        <button class="btn-danger" onclick="removeMember('{{ m.id }}', '{{ m.user.name }}')">Remove</button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% if invites %}
+<div class="team-section">
+  <h3 class="team-section-title">Pending Invites ({{ invites|length }})</h3>
+  <div class="team-list">
+    {% for inv in invites %}
+    <div class="team-row" id="invite-row-{{ inv.id }}">
+      <div class="team-person">
+        <span class="avatar avatar-pending">?</span>
+        <div>
+          <div class="team-name">{{ inv.email }}</div>
+          <div class="team-email">Invited by {{ inv.invited_by.name }} · not yet joined</div>
+        </div>
+      </div>
+      <button class="btn-danger" onclick="cancelInvite('{{ inv.id }}')">Cancel</button>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Invite Modal -->
+<div class="modal-overlay" id="inviteModalOverlay" onclick="if(event.target === this) closeInviteModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Invite a teammate</h3>
+      <button class="modal-close" onclick="closeInviteModal()">&times;</button>
+    </div>
+    <form id="inviteForm" onsubmit="submitInvite(event)">
+      <label class="form-label">Gmail address</label>
+      <input type="email" id="inviteEmailInput" class="form-input" placeholder="teammate@gmail.com" required>
+      <p class="invite-note">
+        They'll automatically join this workspace the first time they log in with this Google account.
+        Make sure to also add them as a <strong>test user</strong> in your Google Cloud OAuth consent screen,
+        or their login will be blocked by Google.
+      </p>
+      <div id="inviteError" class="invite-error" style="display:none;"></div>
+      <div class="modal-footer">
+        <div style="flex:1;"></div>
+        <button type="button" class="btn-secondary" onclick="closeInviteModal()">Cancel</button>
+        <button type="submit" class="btn-primary">Send Invite</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function openInviteModal() {
+    document.getElementById('inviteForm').reset();
+    document.getElementById('inviteError').style.display = 'none';
+    document.getElementById('inviteModalOverlay').classList.add('open');
+  }
+
+  function closeInviteModal() {
+    document.getElementById('inviteModalOverlay').classList.remove('open');
+  }
+
+  function submitInvite(event) {
+    event.preventDefault();
+    const email = document.getElementById('inviteEmailInput').value.trim().toLowerCase();
+    const errorBox = document.getElementById('inviteError');
+    errorBox.style.display = 'none';
+
+    fetch('/api/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    }).then(async res => {
+      if (res.ok) {
+        location.reload();
+      } else {
+        const data = await res.json();
+        errorBox.textContent = data.error || 'Something went wrong.';
+        errorBox.style.display = 'block';
+      }
+    });
+  }
+
+  function cancelInvite(inviteId) {
+    if (!confirm('Cancel this invite?')) return;
+    fetch(`/api/invites/${inviteId}`, { method: 'DELETE' }).then(res => {
+      if (res.ok || res.status === 204) {
+        document.getElementById(`invite-row-${inviteId}`).remove();
+      }
+    });
+  }
+
+  function removeMember(memberId, name) {
+    if (!confirm(`Remove ${name} from the workspace? They'll lose access to boards and chat.`)) return;
+    fetch(`/api/team/members/${memberId}`, { method: 'DELETE' }).then(async res => {
+      if (res.ok || res.status === 204) {
+        document.getElementById(`member-row-${memberId}`).remove();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Could not remove member.');
+      }
+    });
+  }
+</script>
+{% endblock %}

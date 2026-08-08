@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Analytics — KanPlan{% endblock %}
+{% set active = 'analytics' %}
+
+{% block content %}
+<div class="board-header">
+  <h2>Analytics</h2>
+</div>
+
+<div class="stat-row">
+  <div class="stat-card accent-primary"><div class="label">Total Tasks</div><div class="value">{{ total_tasks }}</div></div>
+  <div class="stat-card accent-success"><div class="label">Overall Productivity</div><div class="value">{{ overall_productivity }}%</div></div>
+</div>
+
+<div class="analytics-grid">
+  <div class="chart-card">
+    <h4 class="chart-card-title">Task Status Distribution</h4>
+    <canvas id="statusChart"></canvas>
+  </div>
+  <div class="chart-card">
+    <h4 class="chart-card-title">Weekly Completed Tasks</h4>
+    <canvas id="weeklyChart"></canvas>
+  </div>
+  <div class="chart-card">
+    <h4 class="chart-card-title">Monthly Completed Tasks</h4>
+    <canvas id="monthlyChart"></canvas>
+  </div>
+</div>
+
+<div class="team-section">
+  <h3 class="team-section-title">Per-Person Breakdown</h3>
+  <div class="team-list">
+    {% for p in person_stats %}
+    <div class="team-row">
+      <div class="team-person">
+        <span class="avatar">{{ p.initials }}</span>
+        <div>
+          <div class="team-name">{{ p.name }}</div>
+          <div class="team-email">{{ p.completed }} of {{ p.total }} tasks completed</div>
+        </div>
+      </div>
+      <span class="role-badge role-admin">{{ p.productivity }}%</span>
+    </div>
+    {% else %}
+    <div class="team-row"><div class="team-email">No tasks yet.</div></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  new Chart(document.getElementById('statusChart'), {
+    type: 'doughnut',
+    data: {
+      labels: {{ status_labels|tojson }},
+      datasets: [{
+        data: {{ status_values|tojson }},
+        backgroundColor: ['#94A3B8', '#06B6D4', '#F59E0B', '#4F46E5', '#10B981']
+      }]
+    },
+    options: { maintainAspectRatio: true, aspectRatio: 1.3, plugins: { legend: { position: 'bottom' } } }
+  });
+
+  new Chart(document.getElementById('weeklyChart'), {
+    type: 'bar',
+    data: {
+      labels: {{ weekly_labels|tojson }},
+      datasets: [{ label: 'Completed', data: {{ weekly_counts|tojson }}, backgroundColor: '#10B981', borderRadius: 6 }]
+    },
+    options: {
+      maintainAspectRatio: true, aspectRatio: 1.3,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+    }
+  });
+
+  new Chart(document.getElementById('monthlyChart'), {
+    type: 'bar',
+    data: {
+      labels: {{ monthly_labels|tojson }},
+      datasets: [{ label: 'Completed', data: {{ monthly_counts|tojson }}, backgroundColor: '#4F46E5', borderRadius: 6 }]
+    },
+    options: {
+      maintainAspectRatio: true, aspectRatio: 1.3,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+    }
+  });
+</script>
+{% endblock %}

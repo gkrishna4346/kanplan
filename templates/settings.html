@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Settings — KanPlan{% endblock %}
+{% set active = 'settings' %}
+
+{% block content %}
+<div class="board-header">
+  <h2>Settings</h2>
+</div>
+
+<div class="settings-section">
+  <h3 class="team-section-title">Profile</h3>
+  <div class="team-list">
+    <div class="team-row">
+      <div class="team-person">
+        <span class="avatar">{{ current_user.initials() }}</span>
+        <div>
+          <div class="team-name">{{ current_user.name }}</div>
+          <div class="team-email">{{ current_user.email }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="settings-section">
+  <h3 class="team-section-title">Appearance</h3>
+  <div class="team-list">
+    <div class="team-row">
+      <div>
+        <div class="team-name">Theme</div>
+        <div class="team-email">Choose how KanPlan looks on this device</div>
+      </div>
+      <div class="theme-toggle" id="themeToggle" data-theme="{{ current_user.theme or 'light' }}">
+        <button type="button" class="theme-option {{ 'active' if (current_user.theme or 'light') == 'light' else '' }}" onclick="setTheme('light')">☀️ Light</button>
+        <button type="button" class="theme-option {{ 'active' if current_user.theme == 'dark' else '' }}" onclick="setTheme('dark')">🌙 Dark</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="settings-section">
+  <h3 class="team-section-title">Data</h3>
+  <div class="team-list">
+    <div class="team-row">
+      <div>
+        <div class="team-name">Export CSV</div>
+        <div class="team-email">Download all your tasks as a spreadsheet file</div>
+      </div>
+      <a href="{{ url_for('settings.export_csv') }}" class="btn-secondary" style="text-decoration:none;">Download</a>
+    </div>
+    <div class="team-row">
+      <div>
+        <div class="team-name">Google Sheets Backup</div>
+        <div class="team-email" id="syncStatusText">Sync your tasks to a Google Sheet you control</div>
+      </div>
+      <button type="button" class="btn-primary" id="syncNowBtn" onclick="syncToSheets()">Sync Now</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function setTheme(theme) {
+    fetch('/api/settings/theme', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theme })
+    }).then(res => {
+      if (res.ok) {
+        document.body.dataset.theme = theme;
+        document.querySelectorAll('.theme-option').forEach(btn => btn.classList.remove('active'));
+        event.target.classList.add('active');
+      }
+    });
+  }
+
+  function syncToSheets() {
+    const btn = document.getElementById('syncNowBtn');
+    const statusText = document.getElementById('syncStatusText');
+    btn.disabled = true;
+    btn.textContent = 'Syncing...';
+
+    fetch('/api/sheets/sync', { method: 'POST' })
+      .then(async res => {
+        const data = await res.json();
+        if (res.ok) {
+          statusText.innerHTML = `Last synced just now — <a href="${data.sheet_url}" target="_blank">Open Sheet</a>`;
+        } else {
+          statusText.textContent = data.error || 'Sync failed. Try again.';
+        }
+      })
+      .catch(() => { statusText.textContent = 'Sync failed. Try again.'; })
+      .finally(() => {
+        btn.disabled = false;
+        btn.textContent = 'Sync Now';
+      });
+  }
+</script>
+{% endblock %}

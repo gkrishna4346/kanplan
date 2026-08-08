@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — KanPlan{% endblock %}
+{% set active = 'dashboard' %}
+
+{% block content %}
+<div class="welcome-note">
+  <h2 id="welcomeGreeting">Welcome back, {{ current_user.name.split(' ')[0] }} 👋</h2>
+  <p>Here's how things are looking across your board today.</p>
+</div>
+
+<div class="stat-row">
+  <div class="stat-card accent-primary"><div class="label">Total Tasks</div><div class="value">{{ stats.total }}</div></div>
+  <div class="stat-card"><div class="label">Pending</div><div class="value">{{ stats.pending }}</div></div>
+  <div class="stat-card accent-warning"><div class="label">In Progress</div><div class="value">{{ stats.in_progress }}</div></div>
+  <div class="stat-card accent-success"><div class="label">Completed</div><div class="value">{{ stats.completed }}</div></div>
+  <div class="stat-card accent-danger"><div class="label">Overdue</div><div class="value">{{ stats.overdue }}</div></div>
+  <div class="stat-card"><div class="label">Today's Tasks</div><div class="value">{{ stats.today }}</div></div>
+  <div class="stat-card accent-primary"><div class="label">Productivity</div><div class="value">{{ stats.productivity }}%</div></div>
+</div>
+
+<div style="background:var(--surface); border-radius:var(--radius); padding:20px; border:1px solid var(--border); max-width:600px;">
+  <canvas id="productivityChart"></canvas>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function() {
+    const hour = new Date().getHours();
+    const firstName = {{ current_user.name.split(' ')[0]|tojson }};
+    let greeting;
+    if (hour < 12) greeting = `Good morning, ${firstName} ☀️`;
+    else if (hour < 17) greeting = `Good afternoon, ${firstName} 🌤️`;
+    else greeting = `Good evening, ${firstName} 🌙`;
+    document.getElementById('welcomeGreeting').textContent = greeting;
+  })();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  new Chart(document.getElementById('productivityChart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Completed', 'In Progress', 'Pending', 'Overdue'],
+      datasets: [{
+        data: [{{ stats.completed }}, {{ stats.in_progress }}, {{ stats.pending }}, {{ stats.overdue }}],
+        backgroundColor: ['#10B981', '#F59E0B', '#94A3B8', '#F43F5E']
+      }]
+    },
+    options: {
+      maintainAspectRatio: true,
+      aspectRatio: 1.3,
+      plugins: { legend: { position: 'right' } }
+    }
+  });
+</script>
+{% endblock %}

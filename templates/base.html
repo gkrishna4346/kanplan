@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}KanPlan{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body data-theme="{{ current_user.theme if current_user.is_authenticated and current_user.theme else 'light' }}">
+  <div class="app">
+    <div class="sidebar">
+      <div class="logo"><span class="dot"></span> KanPlan</div>
+      <a class="nav-item {% if active == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard.index') }}">📊 Dashboard</a>
+      <a class="nav-item {% if active == 'board' %}active{% endif %}" href="{{ url_for('board.view_board') }}">🗂️ Board</a>
+      <a class="nav-item {% if active == 'team' %}active{% endif %}" href="{{ url_for('team.view_team') }}">👥 Team</a>
+      <a class="nav-item {% if active == 'analytics' %}active{% endif %}" href="{{ url_for('analytics.view_analytics') }}">📈 Analytics</a>
+      <a class="nav-item {% if active == 'mail' %}active{% endif %}" href="{{ url_for('mail.view_mail') }}">📧 Mail</a>
+      <a class="nav-item {% if active == 'settings' %}active{% endif %}" href="{{ url_for('settings.view_settings') }}">⚙️ Settings</a>
+      <a class="nav-item" href="{{ url_for('auth.logout') }}">🚪 Logout</a>
+
+      <div class="nav-divider"></div>
+      <a class="nav-item {% if active == 'convo' %}active{% endif %}" href="{{ url_for('chat.view_convo') }}">💬 Convo</a>
+      <a class="nav-item {% if active == 'video' %}active{% endif %}" href="{{ url_for('video.view_video') }}">🎦 vidéo</a>
+
+      <div class="sidebar-spacer"></div>
+
+      {% if current_user.is_authenticated %}
+      <div class="sidebar-profile">
+        <div class="sidebar-profile-avatar">{{ current_user.initials() }}</div>
+        <div class="sidebar-profile-info">
+          <div class="sidebar-profile-name">{{ current_user.name }}</div>
+          <div class="sidebar-profile-email">{{ current_user.email }}</div>
+          {% if sidebar_role %}
+          <span class="sidebar-profile-role role-{{ sidebar_role }}">{{ sidebar_role }}</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    <div class="main">
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

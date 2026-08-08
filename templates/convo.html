@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}Convo — KanPlan{% endblock %}
+{% set active = 'convo' %}
+
+{% block content %}
+<div class="board-header">
+  <h2>Convo</h2>
+</div>
+
+{% if not configured %}
+<div class="team-section">
+  <div class="team-list">
+    <div class="team-row">
+      <div class="team-email">
+        Chat isn't set up yet. An admin needs to add <code>STREAM_API_KEY</code> and
+        <code>STREAM_API_SECRET</code> to <code>.env</code> (free tier at
+        <a href="https://getstream.io" target="_blank" rel="noopener">getstream.io</a>) and restart the app.
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
+
+<div class="convo-layout">
+  <div class="convo-sidebar">
+    <div class="convo-sidebar-title">Team</div>
+    <div class="convo-channel-item active" id="channel-team" onclick="openTeamChannel()">
+      <span class="avatar">#</span>
+      <div class="convo-channel-name">Team chat</div>
+    </div>
+
+    <div class="convo-sidebar-title" style="margin-top:16px;">Direct messages</div>
+    {% for t in teammates %}
+    <div class="convo-channel-item" id="dm-{{ t.id }}" onclick="openDM('{{ t.id }}', '{{ t.name }}')">
+      <span class="avatar">{{ t.initials }}</span>
+      <div class="convo-channel-name">{{ t.name }}</div>
+    </div>
+    {% else %}
+    <div class="team-email" style="padding:8px 12px;">No teammates yet — invite someone from the Team page.</div>
+    {% endfor %}
+  </div>
+
+  <div class="convo-main">
+    <div class="convo-header" style="display:flex; align-items:center; justify-content:space-between;">
+      <span id="convoHeader">Team chat</span>
+      <a class="video-ctrl-btn" id="convoCallBtn" href="{{ url_for('video.view_video') }}?call={{ team_channel_id }}&label=Team%20call" style="text-decoration:none;">📹 Call</a>
+    </div>
+    <div class="convo-messages" id="convoMessages">
+      <div class="convo-loading">Connecting…</div>
+    </div>
+    <div class="convo-input-row">
+      <input type="text" id="convoInput" class="form-input" placeholder="Message…" onkeydown="if(event.key==='Enter') sendMessage()">
+      <button class="btn-primary" id="convoSendBtn" onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if configured %}
+<script src="https://cdn.jsdelivr.net/npm/stream-chat@8/dist/browser.full-bundle.min.js"></script>
+<script>
+  const STREAM_API_KEY = {{ stream_api_key|tojson }};
+  const STREAM_TOKEN = {{ stream_token|tojson }};
+  const CURRENT_USER = {
+    id: {{ user_id|tojson }},
+    name: {{ user_name|tojson }},
+    image: {{ user_avatar|tojson }},
+  };
+  const TEAM_CHANNEL_ID = {{ team_channel_id|tojson }};
+
+  // Different CDN builds have exposed the class either as `window.StreamChat`
+  // directly or nested as `window.StreamChat.StreamChat` — handle both so this
+  // doesn't break again if the CDN's bundling changes.
+  const StreamChatCtor = (window.StreamChat && window.StreamChat.StreamChat) || window.StreamChat;
+  if (!StreamChatCtor || typeof StreamChatCtor.getInstance !== 'function') {
+    document.getElementById('convoMessages').innerHTML =
+      '<div class="convo-loading" style="color:var(--danger);">Stream Chat script failed to load. Check your network connection and browser console.</div>';
+    throw new Error('StreamChat SDK not found on window');
+  }
+  const client = StreamChatCtor.getInstance(STREAM_API_KEY);
+  let activeChannel = null;
+
+  async function init() {
+    try {
+      console.log('[Convo] Connecting user:', CURRENT_USER.id);
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timed out after 10s — check your network/VPN/firewall allows WebSocket connections.')), 10000)
+      );
+      await Promise.race([client.connectUser(CURRENT_USER, STREAM_TOKEN), timeout]);
+      console.log('[Convo] Connected OK');
+      await openTeamChannel();
+    } catch (err) {
+      console.error('[Convo] connectUser failed:', err);
+      document.getElementById('convoMessages').innerHTML =
+        `<div class="convo-loading" style="color:var(--danger);">
+           Couldn't connect to chat: ${escapeHtml(err.message || String(err))}<br>
+           Open the browser console (F12 or Cmd+Opt+I) for full details.
+         </div>`;
+    }
+  }
+
+  function setActiveNav(el) {
+    document.querySelectorAll('.convo-channel-item').forEach(n => n.classList.remove('active'));
+    if (el) el.classList.add('active');
+  }
+
+  function lockInput(locked) {
+    document.getElementById('convoInput').disabled = locked;
+    document.getElementById('convoSendBtn').disabled = locked;
+  }
+
+  function updateCallLink(callId, label) {
+    const btn = document.getElementById('convoCallBtn');
+    if (btn) btn.href = `/video?call=${encodeURIComponent(callId)}&label=${encodeURIComponent(label)}`;
+  }
+
+  async function watchChannel(channel, headerText) {
+    // Null out activeChannel while switching so a message can NEVER be sent to
+    // the previous (stale) channel while a new one is loading.
+    activeChannel = null;
+    lockInput(true);
+    document.getElementById('convoHeader').textContent = 'Loading…';
+    document.getElementById('convoMessages').innerHTML = '<div class="convo-loading">Loading messages…</div>';
+
+    try {
+      await channel.watch();
+      console.log('[Convo] Watching channel:', channel.id);
+      activeChannel = channel;
+      document.getElementById('convoHeader').textContent = headerText;
+      updateCallLink(channel.id, headerText);
+      renderMessages(channel.state.messages);
+      channel.on('message.new', () => renderMessages(channel.state.messages));
+    } catch (err) {
+      console.error('[Convo] channel.watch failed:', err);
+      document.getElementById('convoHeader').textContent = headerText + ' (failed to load)';
+      document.getElementById('convoMessages').innerHTML =
+        `<div class="convo-loading" style="color:var(--danger);">
+           Couldn't load this channel: ${escapeHtml(err.message || String(err))}
+         </div>`;
+    } finally {
+      lockInput(false);
+    }
+  }
+
+  async function openTeamChannel() {
+    setActiveNav(document.getElementById('channel-team'));
+    const channel = client.channel('messaging', TEAM_CHANNEL_ID);
+    await watchChannel(channel, 'Team chat');
+  }
+
+  async function openDM(otherUserId, otherName) {
+    setActiveNav(document.getElementById('dm-' + otherUserId));
+    lockInput(true);
+    document.getElementById('convoHeader').textContent = 'Loading…';
+    document.getElementById('convoMessages').innerHTML = '<div class="convo-loading">Opening chat…</div>';
+    activeChannel = null;
+
+    try {
+      const res = await fetch(`/api/chat/dm/${otherUserId}`, { method: 'POST' });
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status} while creating the DM channel.`);
+      }
+      const data = await res.json();
+      const channel = client.channel(data.channel_type, data.channel_id);
+      await watchChannel(channel, otherName);
+    } catch (err) {
+      console.error('[Convo] openDM failed:', err);
+      document.getElementById('convoHeader').textContent = `${otherName} (failed to open)`;
+      document.getElementById('convoMessages').innerHTML =
+        `<div class="convo-loading" style="color:var(--danger);">
+           Couldn't open this chat: ${escapeHtml(err.message || String(err))}
+         </div>`;
+      lockInput(false);
+    }
+  }
+
+  function renderMessages(messages) {
+    const box = document.getElementById('convoMessages');
+    if (!messages.length) {
+      box.innerHTML = '<div class="convo-loading">No messages yet — say hi 👋</div>';
+      return;
+    }
+    box.innerHTML = messages.map(m => {
+      const mine = m.user && m.user.id === CURRENT_USER.id;
+      const who = mine ? 'You' : (m.user ? m.user.name : 'Unknown');
+      const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+      return `<div class="convo-message ${mine ? 'mine' : ''}">
+                <div class="convo-message-meta">${who} · ${time}</div>
+                <div class="convo-message-bubble">${escapeHtml(m.text || '')}</div>
+              </div>`;
+    }).join('');
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById('convoInput');
+    const text = input.value.trim();
+    if (!text || !activeChannel) return;
+    input.value = '';
+    await activeChannel.sendMessage({ text });
+  }
+
+  init();
+</script>
+{% endif %}
+{% endblock %}

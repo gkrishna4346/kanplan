@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Archived — KanPlan{% endblock %}
+{% set active = 'board' %}
+
+{% block content %}
+<div class="board-header">
+  <h2>Archived Tasks</h2>
+  <a href="{{ url_for('board.view_board') }}" class="btn-secondary" style="text-decoration:none;">← Back to Board</a>
+</div>
+
+<div class="team-list">
+  {% for task in tasks %}
+  {% set editable = (current_role == 'admin') or (task.assignee_id == current_user.id) or (task.created_by_id == current_user.id) %}
+  <div class="team-row">
+    <div>
+      <div class="team-name">{{ task.title }}</div>
+      <div class="team-email">
+        <span class="tag {{ task.priority }}" style="margin-right:6px;">{{ task.priority|capitalize }}</span>
+        {{ task.status }} · Archived {{ task.updated_at.strftime('%b %-d, %Y') if task.updated_at else '' }}
+        {% if task.assignee %} · Owner: {{ task.assignee.name }}{% endif %}
+      </div>
+    </div>
+    {% if editable %}
+    <button class="btn-secondary" onclick="restoreTask('{{ task.id }}', this)">Restore</button>
+    {% else %}
+    <span class="role-badge role-member">🔒 View only</span>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="team-row"><div class="team-email">No archived tasks yet.</div></div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function restoreTask(taskId, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Restoring...';
+
+    fetch(`/api/tasks/${taskId}/restore`, { method: 'PATCH' }).then(async res => {
+      if (res.ok) {
+        location.reload();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Could not restore task.');
+        btn.disabled = false;
+        btn.textContent = 'Restore';
+      }
+    });
+  }
+</script>
+{% endblock %}

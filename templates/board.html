@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+{% block title %}Board — KanPlan{% endblock %}
+{% set active = 'board' %}
+
+{% block content %}
+<div class="board-header">
+  <h2>{{ board.name }}</h2>
+  <div style="display:flex; gap:10px; align-items:center;">
+    {% if archived_count %}
+    <a href="{{ url_for('board.view_archived') }}" class="btn-secondary" style="text-decoration:none;">🗄️ Archived ({{ archived_count }})</a>
+    {% endif %}
+    <button class="btn-primary" onclick="openTaskModal()">+ Add Task</button>
+  </div>
+</div>
+
+<div class="toolbar">
+  <input type="text" id="searchInput" class="search-input" placeholder="Search title, description, tags...">
+  <select id="filterStatus" class="filter-select">
+    <option value="">All statuses</option>
+    {% for col_name in columns.keys() %}
+    <option value="{{ col_name }}">{{ col_name }}</option>
+    {% endfor %}
+  </select>
+  <select id="filterPriority" class="filter-select">
+    <option value="">All priorities</option>
+    <option value="high">High</option>
+    <option value="medium">Medium</option>
+    <option value="low">Low</option>
+  </select>
+  <select id="filterDue" class="filter-select">
+    <option value="">Any due date</option>
+    <option value="today">Due today</option>
+    <option value="overdue">Overdue</option>
+  </select>
+  <select id="filterOwner" class="filter-select">
+    <option value="">All owners</option>
+    <option value="__unassigned__">Unassigned</option>
+    {% for m in members %}
+    <option value="{{ m.user.id }}">{{ m.user.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+
+<div class="board">
+  {% for col_name, tasks in columns.items() %}
+  <div class="column" data-status="{{ col_name }}">
+    <div class="column-title">{{ col_name }} <span class="count">{{ tasks|length }}</span></div>
+    <div class="task-list" data-status="{{ col_name }}">
+      {% for task in tasks %}
+      {% set editable = (current_role == 'admin') or (task.assignee_id == current_user.id) or (task.created_by_id == current_user.id) %}
+      <div class="card {{ '' if editable else 'card-view-only' }}"
+           data-id="{{ task.id }}"
+           data-title="{{ task.title }}"
+           data-description="{{ task.description or '' }}"
+           data-priority="{{ task.priority }}"
+           data-status="{{ task.status }}"
+           data-due-date="{{ task.due_date.isoformat() if task.due_date else '' }}"
+           data-tags="{{ task.tags or '' }}"
+           data-overdue="{{ 'true' if task.is_overdue() else 'false' }}"
+           data-assignee-id="{{ task.assignee_id or '' }}"
+           data-created-by-id="{{ task.created_by_id }}"
+           data-can-edit="{{ 'true' if editable else 'false' }}"
+           onclick="openTaskModal('{{ task.id }}')">
+        <div class="title">{{ task.title }}{% if not editable %} <span class="view-only-badge" title="View only">🔒</span>{% endif %}</div>
+        <span class="tag {{ task.priority }}">{{ task.priority|capitalize }}</span>
+        <div class="meta">
+          <span class="due">{% if task.due_date %}{{ task.due_date.strftime('%b %-d') }}{% else %}No due date{% endif %}</span>
+          {% if task.assignee %}<span class="avatar">{{ task.assignee.initials() }}</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Add/Edit Task Modal -->
+<div class="modal-overlay" id="taskModalOverlay" onclick="if(event.target === this) closeTaskModal()">
+  <div class="modal" id="taskModalBox">
+    <div class="modal-columns">
+
+      <div class="modal-col-left">
+        <div class="modal-header">
+          <h3 id="modalTitle">Add Task</h3>
+          <div class="modal-header-actions">
+            <button type="button" id="logsToggleBtn" class="logs-toggle-btn" onclick="toggleLogsPanel()" style="display:none;">📋 Logs</button>
+            <button class="modal-close" onclick="closeTaskModal()">&times;</button>
+          </div>
+        </div>
+        <form id="taskForm" onsubmit="submitTaskForm(event)">
+          <input type="hidden" id="taskId">
+
+          <label class="form-label">Title</label>
+          <input type="text" id="taskTitleInput" class="form-input" required>
+
+          <label class="form-label">Description</label>
+          <textarea id="taskDescriptionInput" class="form-input" rows="3"></textarea>
+
+          <div class="form-row">
+            <div>
+              <label class="form-label">Priority</label>
+              <select id="taskPriorityInput" class="form-input">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">Status</label>
+              <select id="taskStatusInput" class="form-input">
+                {% for col_name in columns.keys() %}
+                <option value="{{ col_name }}">{{ col_name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div>
+              <label class="form-label">Due Date</label>
+              <input type="date" id="taskDueDateInput" class="form-input">
+            </div>
+            <div>
+              <label class="form-label">Tags (comma-separated)</label>
+              <input type="text" id="taskTagsInput" class="form-input" placeholder="frontend, urgent">
+            </div>
+          </div>
+
+          <label class="form-label">Owner</label>
+          <select id="taskAssigneeInput" class="form-input">
+            <option value="">Unassigned</option>
+            {% for m in members %}
+            <option value="{{ m.user.id }}">{{ m.user.name }}</option>
+            {% endfor %}
+          </select>
+
+          <div id="viewOnlyNote" class="view-only-note" style="display:none;">
+            🔒 You can view this task, but only the creator, assignee, or an admin can edit it.
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" id="archiveTaskBtn" class="btn-secondary" onclick="archiveCurrentTask()" style="display:none;">Archive</button>
+            <button type="button" id="deleteTaskBtn" class="btn-danger" onclick="deleteCurrentTask()" style="display:none;">Delete</button>
+            <div style="flex:1;"></div>
+            <button type="button" class="btn-secondary" onclick="closeTaskModal()">Cancel</button>
+            <button type="submit" class="btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="modal-col-right" id="activityPanel">
+        <h4 class="activity-title">Activity</h4>
+        <div id="activityList" class="activity-list"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const CURRENT_USER_ID = {{ current_user.id|tojson }};
+  const CURRENT_ROLE = {{ current_role|tojson }};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+  // ---------- Drag & drop ----------
+  document.querySelectorAll('.task-list').forEach(list => {
+    new Sortable(list, {
+      group: 'kanban',
+      animation: 150,
+      filter: '.card-view-only',
+      onMove: function (evt) {
+        return evt.dragged.dataset.canEdit === 'true';
+      },
+      onEnd: function (evt) {
+        const taskId = evt.item.dataset.id;
+        const newStatus = evt.to.dataset.status;
+        const newPosition = evt.newIndex;
+
+        fetch(`/api/tasks/${taskId}/move`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus, position: newPosition })
+        }).then(res => {
+          if (!res.ok) location.reload(); // permission denied server-side -- snap back by reloading
+          else updateColumnCounts();
+        });
+      }
+    });
+  });
+
+  // ---------- Add / Edit modal ----------
+  let currentTaskId = null;
+
+  function openTaskModal(taskId) {
+    const overlay = document.getElementById('taskModalOverlay');
+    const modalBox = document.getElementById('taskModalBox');
+    const form = document.getElementById('taskForm');
+    form.reset();
+
+    // Always start collapsed to a single column
+    modalBox.classList.remove('modal-wide');
+    document.getElementById('activityPanel').classList.remove('open');
+    currentTaskId = taskId || null;
+
+    if (taskId) {
+      const card = document.querySelector(`.card[data-id="${taskId}"]`);
+      const canEdit = card.dataset.canEdit === 'true';
+
+      document.getElementById('modalTitle').textContent = canEdit ? 'Edit Task' : 'View Task';
+      document.getElementById('taskId').value = taskId;
+      document.getElementById('taskTitleInput').value = card.dataset.title;
+      document.getElementById('taskDescriptionInput').value = card.dataset.description;
+      document.getElementById('taskPriorityInput').value = card.dataset.priority;
+      document.getElementById('taskStatusInput').value = card.dataset.status;
+      document.getElementById('taskDueDateInput').value = card.dataset.dueDate;
+      document.getElementById('taskTagsInput').value = card.dataset.tags;
+      document.getElementById('taskAssigneeInput').value = card.dataset.assigneeId || '';
+      document.getElementById('logsToggleBtn').style.display = 'inline-block';
+
+      // Lock every field if this person can't edit this task
+      const fields = ['taskTitleInput','taskDescriptionInput','taskPriorityInput','taskStatusInput','taskDueDateInput','taskTagsInput','taskAssigneeInput'];
+      fields.forEach(id => { document.getElementById(id).disabled = !canEdit; });
+
+      const saveBtn = document.querySelector('#taskForm button[type="submit"]');
+      saveBtn.style.display = canEdit ? 'inline-block' : 'none';
+
+      const deleteBtn = document.getElementById('deleteTaskBtn');
+      const archiveBtn = document.getElementById('archiveTaskBtn');
+      if (CURRENT_ROLE === 'admin') {
+        deleteBtn.style.display = 'inline-block';
+        archiveBtn.style.display = canEdit ? 'inline-block' : 'none';
+      } else {
+        deleteBtn.style.display = 'none';
+        archiveBtn.style.display = canEdit ? 'inline-block' : 'none';
+      }
+
+      if (!canEdit) {
+        document.getElementById('viewOnlyNote').style.display = 'block';
+      } else {
+        document.getElementById('viewOnlyNote').style.display = 'none';
+      }
+    } else {
+      document.getElementById('modalTitle').textContent = 'Add Task';
+      document.getElementById('taskId').value = '';
+      document.getElementById('deleteTaskBtn').style.display = 'none';
+      document.getElementById('archiveTaskBtn').style.display = 'none';
+      document.getElementById('logsToggleBtn').style.display = 'none';
+      document.getElementById('viewOnlyNote').style.display = 'none';
+
+      const fields = ['taskTitleInput','taskDescriptionInput','taskPriorityInput','taskStatusInput','taskDueDateInput','taskTagsInput','taskAssigneeInput'];
+      fields.forEach(id => { document.getElementById(id).disabled = false; });
+      document.querySelector('#taskForm button[type="submit"]').style.display = 'inline-block';
+    }
+
+    overlay.classList.add('open');
+  }
+
+  function toggleLogsPanel() {
+    const modalBox = document.getElementById('taskModalBox');
+    const panel = document.getElementById('activityPanel');
+    const isOpen = panel.classList.contains('open');
+
+    if (isOpen) {
+      panel.classList.remove('open');
+      modalBox.classList.remove('modal-wide');
+    } else {
+      panel.classList.add('open');
+      modalBox.classList.add('modal-wide');
+      if (currentTaskId) loadActivity(currentTaskId);
+    }
+  }
+
+  function loadActivity(taskId) {
+    const list = document.getElementById('activityList');
+    list.innerHTML = '<div class="activity-empty">Loading...</div>';
+
+    fetch(`/api/tasks/${taskId}/activity`)
+      .then(res => res.json())
+      .then(logs => {
+        if (!logs.length) {
+          list.innerHTML = '<div class="activity-empty">No activity yet.</div>';
+          return;
+        }
+        const actionLabels = { created: 'created this task', edited: 'edited this task', moved: 'moved this task', deleted: 'deleted this task' };
+        list.innerHTML = logs.map(log => `
+          <div class="activity-item">
+            <span class="activity-dot"></span>
+            <div>
+              <span class="activity-user">${log.user_name}</span>
+              <span class="activity-action">${actionLabels[log.action] || log.action}${log.detail ? ' ' + log.detail : ''}</span>
+              <div class="activity-time">${log.created_at}</div>
+            </div>
+          </div>
+        `).join('');
+      });
+  }
+
+  function closeTaskModal() {
+    document.getElementById('taskModalOverlay').classList.remove('open');
+  }
+
+  function submitTaskForm(event) {
+    event.preventDefault();
+    const taskId = document.getElementById('taskId').value;
+
+    const payload = {
+      title: document.getElementById('taskTitleInput').value,
+      description: document.getElementById('taskDescriptionInput').value,
+      priority: document.getElementById('taskPriorityInput').value,
+      status: document.getElementById('taskStatusInput').value,
+      due_date: document.getElementById('taskDueDateInput').value || null,
+      tags: document.getElementById('taskTagsInput').value,
+      assignee_id: document.getElementById('taskAssigneeInput').value || null,
+    };
+
+    const url = taskId ? `/api/tasks/${taskId}` : '/api/tasks';
+    const method = taskId ? 'PUT' : 'POST';
+
+    fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(async res => {
+      if (res.ok) {
+        location.reload();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Something went wrong saving the task.');
+      }
+    });
+  }
+
+  function archiveCurrentTask() {
+    const taskId = document.getElementById('taskId').value;
+    if (!taskId) return;
+    if (!confirm('Archive this task? It will be hidden from the board but kept for reference.')) return;
+
+    fetch(`/api/tasks/${taskId}/archive`, { method: 'PATCH' }).then(async res => {
+      if (res.ok) {
+        location.reload();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Could not archive task.');
+      }
+    });
+  }
+
+  function deleteCurrentTask() {
+    const taskId = document.getElementById('taskId').value;
+    if (!taskId) return;
+    if (!confirm('Permanently delete this task? This cannot be undone.')) return;
+
+    fetch(`/api/tasks/${taskId}`, { method: 'DELETE' }).then(async res => {
+      if (res.ok || res.status === 204) {
+        location.reload();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Could not delete task.');
+      }
+    });
+  }
+
+  // ---------- Search & filters ----------
+  const searchInput = document.getElementById('searchInput');
+  const filterStatus = document.getElementById('filterStatus');
+  const filterPriority = document.getElementById('filterPriority');
+  const filterDue = document.getElementById('filterDue');
+  const filterOwner = document.getElementById('filterOwner');
+
+  function applyFilters() {
+    const query = searchInput.value.trim().toLowerCase();
+    const statusVal = filterStatus.value;
+    const priorityVal = filterPriority.value;
+    const dueVal = filterDue.value;
+    const ownerVal = filterOwner.value;
+    const today = new Date().toISOString().split('T')[0];
+
+    document.querySelectorAll('.card').forEach(card => {
+      const haystack = (card.dataset.title + ' ' + card.dataset.description + ' ' + card.dataset.tags).toLowerCase();
+      let visible = true;
+
+      if (query && !haystack.includes(query)) visible = false;
+      if (statusVal && card.dataset.status !== statusVal) visible = false;
+      if (priorityVal && card.dataset.priority !== priorityVal) visible = false;
+      if (dueVal === 'today' && card.dataset.dueDate !== today) visible = false;
+      if (dueVal === 'overdue' && card.dataset.overdue !== 'true') visible = false;
+      if (ownerVal === '__unassigned__' && card.dataset.assigneeId) visible = false;
+      if (ownerVal && ownerVal !== '__unassigned__' && card.dataset.assigneeId !== ownerVal) visible = false;
+
+      card.style.display = visible ? '' : 'none';
+    });
+
+    updateColumnCounts();
+  }
+
+  function updateColumnCounts() {
+    document.querySelectorAll('.column').forEach(col => {
+      const visibleCards = col.querySelectorAll('.card:not([style*="display: none"])').length;
+      col.querySelector('.column-title .count').textContent = visibleCards;
+    });
+  }
+
+  [searchInput, filterStatus, filterPriority, filterDue, filterOwner].forEach(el => {
+    el.addEventListener('input', applyFilters);
+  });
+</script>
+{% endblock %}
